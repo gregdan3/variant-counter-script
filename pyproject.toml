@@ -1,0 +1,15 @@
+[project]
+name = "sp-transcript-counter"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "Gregory Danielson", email = "gregory.danielson3@gmail.com"},
+]
+dependencies = ["sonatoki>=0.11.0"]
+requires-python = ">=3.12"
+readme = "README.md"
+license = {text = "AGPL"}
+
+
+[tool.pdm]
+distribution = false

@@ -1,0 +1,4 @@
+__pycache__
+.pdm-python
+*.csv
+*.json
