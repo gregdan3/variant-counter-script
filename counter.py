@@ -3,12 +3,15 @@ import hashlib
 import itertools
 import json
 import re
+import math
 import uuid
 from collections import defaultdict, OrderedDict
 from collections.abc import Generator, Iterable
 from datetime import datetime
-from typing import TypedDict, TypeVar, cast
+from typing import Any, TypedDict, TypeVar, cast
 from uuid import UUID
+
+# from scipy.stats import norm
 
 from sonatoki.Configs import CorpusConfig
 from sonatoki.ilo import Ilo
@@ -265,6 +268,65 @@ def process_variants(rows: list[ProcessedRow]) -> dict[str, int]:
     return sorted_variants
 
 
+def dump_to_json(obj: dict[Any, Any], filename: str):
+    with open(filename, "w") as f:
+        f.write(json.dumps(obj, default=str, indent=2))
+
+
+def get_total_hits_authors(frequencies: Metacounter) -> tuple[int, int]:
+    total_hits = 0
+    total_authors_set: set[UUID] = set()
+    total_authors = 0
+    for length, data in frequencies.items():
+        if length > 1:
+            break
+        for word, hitsdata in data.items():
+            total_hits += hitsdata["hits"]
+            total_authors_set |= hitsdata["authors"]
+    total_authors = len(total_authors_set)
+    return total_hits, total_authors
+
+
+def norm_cdf(z: float) -> float:
+    return (1 + math.erf(z / math.sqrt(2))) / 2
+
+
+def find_max_confidence(instance_samples: int, total_samples: int) -> float:
+    p = instance_samples / total_samples
+    max_std_err = p * (1 - p)
+    std_err = math.sqrt(max_std_err / total_samples)
+    max_margin_err = 0.5 - p if p < 0.5 else p - 0.5
+    max_margin_err *= 0.999
+    # max_margin_err = 0.1 # largest "standard" margin of err
+    # make it a tiny bit smaller so we still have a majority in the worst case
+
+    z = max_margin_err / std_err
+    confidence_level = 2 * norm_cdf(z) - 1  # Two-tailed confidence level
+    return confidence_level
+
+
+def error_check(row: ProcessedRow, sentences: list[Sentence]):
+    variants = row["variants"]
+    # TODO: check that every variant appears in a given row's transcript
+    # for
+    # *_, word = variants.split(" ")
+
+
+def print_result(identifier: str, hits: int, total: int):
+    p = hits / total
+    if p == 0.5:
+        print(f"{identifier}: {hits}/{total} ({p * 100:.2f}%)")
+        print(f"{identifier} is tied (0.00% confidence)\n")
+
+    confidence = find_max_confidence(hits, total)
+    is_majority = "not a majority"
+    if p > 0.5:
+        is_majority = "a majority"
+
+    print(f"{identifier}: {hits}/{total} ({p * 100:.2f}%)")
+    print(f"{confidence* 100:.2f}% confidence that {identifier} is {is_majority}\n")
+
+
 def main():
     all_rows: list[ProcessedRow] = list()
     all_sentences: list[Sentence] = list()
@@ -273,12 +335,33 @@ def main():
         sentences = row_to_sentences(row)
         all_sentences.extend(sentences)
 
-    frequencies = count_frequencies(all_sentences, 1)
-    frequencies = process_metacounter(frequencies)
-    print(json.dumps(frequencies, default=str, indent=2))
+    frequencies = count_frequencies(all_sentences, 2)
+    total_hits, total_authors = get_total_hits_authors(frequencies)
 
     variants = process_variants(all_rows)
-    # print(json.dumps(variants, default=str, indent=2))
+    long_variants = 0
+    total_longable_hits = 0
+
+    for variant, variant_hits in variants.items():
+        _pieces = variant.split(" ")
+        determiner = _pieces[0]
+        word = _pieces[-1]
+
+        word_hits = frequencies[1][word]["hits"]
+        if word_hits <= 1:
+            continue
+
+        if determiner == "long":
+            long_variants += variant_hits
+            total_longable_hits += word_hits
+
+        print_result(variant, variant_hits, word_hits)
+
+    print_result("Glyph extensions", long_variants, total_longable_hits)
+
+    frequencies = process_metacounter(frequencies)
+    dump_to_json(frequencies, "freqs.json")
+    dump_to_json(variants, "variants.json")
 
 
 if __name__ == "__main__":
