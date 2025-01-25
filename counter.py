@@ -293,15 +293,13 @@ def norm_cdf(z: float) -> float:
 
 def find_max_confidence(instance_samples: int, total_samples: int) -> float:
     p = instance_samples / total_samples
-    max_std_err = p * (1 - p)
+    max_std_err = p * (1 - p)  # p and its inverse
     std_err = math.sqrt(max_std_err / total_samples)
-    max_margin_err = 0.5 - p if p < 0.5 else p - 0.5
-    max_margin_err *= 0.999
-    # max_margin_err = 0.1 # largest "standard" margin of err
+    max_margin_err = abs(0.5 - p) * 0.999
     # make it a tiny bit smaller so we still have a majority in the worst case
 
     z = max_margin_err / std_err
-    confidence_level = 2 * norm_cdf(z) - 1  # Two-tailed confidence level
+    confidence_level = 2 * norm_cdf(z) - 1
     return confidence_level
 
 
